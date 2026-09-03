@@ -46,6 +46,21 @@
 #include <malloc_implementation.h>
 
 #include <mach-o/dyld_priv.h>
+#include <stdio.h>
+#include <stdarg.h>
+
+extern void __simple_kprintf(const char* format, ...);
+
+__attribute__((visibility("default")))
+void darling_kprintf(const char* format, ...)
+{
+	va_list ap;
+	va_start(ap, format);
+	char buf[512];
+	vsnprintf(buf, sizeof(buf), format, ap);
+	va_end(ap);
+	__simple_kprintf("%s", buf);
+}
 
 #ifdef DARLING
 extern int _dyld_func_lookup(const char* name, void** address);
@@ -133,8 +148,7 @@ const char *__asan_default_options(void);
 static inline void
 _libSystem_ktrace4(uint32_t code, uint64_t a, uint64_t b, uint64_t c, uint64_t d)
 {
-	if (__builtin_expect(*(volatile uint32_t *)_COMM_PAGE_KDEBUG_ENABLE == 0, 1)) return;
-	kdebug_trace(code, a, b, c, d);
+	return;
 }
 #define _libSystem_ktrace3(code, a, b, c) _libSystem_ktrace4(code, a, b, c, 0)
 #define _libSystem_ktrace2(code, a, b)    _libSystem_ktrace4(code, a, b, 0, 0)
@@ -179,7 +193,7 @@ enum init_func {
 
 // libsyscall_initializer() initializes all of libSystem.dylib
 // <rdar://problem/4892197>
-__attribute__((constructor))
+__attribute__((constructor, no_stack_protector))
 static void
 libSystem_initializer(int argc,
 		      const char* argv[],
@@ -240,31 +254,38 @@ libSystem_initializer(int argc,
 
 	_libc_initializer(&libc_funcs, envp, apple, vars);
 	_libSystem_ktrace_init_func(LIBC);
+	__simple_kprintf("libSystem: step MALLOC\n");
 
 	// TODO: Move __malloc_init before __libc_init after breaking malloc's upward link to Libc
 	// Note that __malloc_init() will also initialize ASAN when it is present
 	__malloc_init(apple);
 	_libSystem_ktrace_init_func(MALLOC);
+	__simple_kprintf("libSystem: step KEYMGR\n");
 
 #if TARGET_OS_OSX
 	/* <rdar://problem/9664631> */
 	__keymgr_initializer();
 	_libSystem_ktrace_init_func(KEYMGR);
 #endif
+	__simple_kprintf("libSystem: step DYLD\n");
 
 	_dyld_initializer();
 	_libSystem_ktrace_init_func(DYLD);
+	__simple_kprintf("libSystem: step PTHREAD_LATE\n");
 
 #if TARGET_OS_OSX
 	__pthread_late_init(envp, apple, vars);
 #endif
+	__simple_kprintf("libSystem: step LIBDISPATCH\n");
 
 	libdispatch_init();
 	_libSystem_ktrace_init_func(LIBDISPATCH);
+	__simple_kprintf("libSystem: step LIBXPC\n");
 
 #if !TARGET_OS_DRIVERKIT
 	_libxpc_initializer();
 	_libSystem_ktrace_init_func(LIBXPC);
+	__simple_kprintf("libSystem: step LIBTRACE\n");
 
 #if SUPPORT_ASAN
 	setenv("DT_BYPASS_LEAKS_CHECK", "1", 1);
@@ -274,21 +295,26 @@ libSystem_initializer(int argc,
 	// must be initialized after dispatch
 	_libtrace_init();
 	_libSystem_ktrace_init_func(LIBTRACE);
+	__simple_kprintf("libSystem: step SECINIT\n");
 
 #if !TARGET_OS_DRIVERKIT
 #if defined(HAVE_SYSTEM_SECINIT)
 	_libsecinit_initializer();
 	_libSystem_ktrace_init_func(SECINIT);
 #endif
+	__simple_kprintf("libSystem: step CONTAINERMGR\n");
 
 #if defined(HAVE_SYSTEM_CONTAINERMANAGER)
 	_container_init(apple);
 	_libSystem_ktrace_init_func(CONTAINERMGR);
 #endif
+	__simple_kprintf("libSystem: step DARWIN\n");
 
 	__libdarwin_init();
 	_libSystem_ktrace_init_func(DARWIN);
 #endif // !TARGET_OS_DRIVERKIT
+
+	__simple_kprintf("libSystem: step MALLOC_LATE\n");
 
 	const struct _malloc_late_init mli = {
 		.version = 1,
@@ -301,6 +327,7 @@ libSystem_initializer(int argc,
 	};
 
 	__malloc_late_init(&mli);
+	__simple_kprintf("libSystem: DONE\n");
 
 #if !TARGET_OS_IPHONE
 	/* <rdar://problem/22139800> - Preserve the old behavior of apple[] for
@@ -353,6 +380,7 @@ libSystem_initializer(int argc,
 	 * to zero by any library function."
 	 */
 	errno = 0;
+	__simple_kprintf("libSystem_initializer RETURNING TO CALLER!\n");
 }
 
 /*
