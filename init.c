@@ -135,6 +135,9 @@ extern void kqueue_closed_fd(int fd);
 // advance decls for below;
 void libSystem_atfork_prepare(void);
 void libSystem_atfork_parent(void);
+#ifdef DARLING
+static void libSystem_atfork_failed(void);
+#endif
 void libSystem_atfork_child(void);
 
 #ifdef DARLING
@@ -236,7 +239,12 @@ libSystem_initializer(int argc,
 	};
 
 	static const struct _libc_functions libc_funcs = {
+#ifdef DARLING
+		.version = 2,
+		.atfork_failed = libSystem_atfork_failed,
+#else
 		.version = 1,
+#endif
 		.atfork_prepare = libSystem_atfork_prepare,
 		.atfork_parent = libSystem_atfork_parent,
 		.atfork_child = libSystem_atfork_child,
@@ -409,8 +417,8 @@ libSystem_atfork_prepare(void)
 	_pthread_atfork_prepare();
 }
 
-void
-libSystem_atfork_parent(void)
+static void
+libSystem_atfork_parent_cleanup(int fork_succeeded)
 {
 	// first call hardwired fork parent handlers for Libsystem components
 	// in the order of library initalization above
@@ -425,12 +433,28 @@ libSystem_atfork_parent(void)
 #endif // !TARGET_OS_DRIVERKIT
 
 #ifdef DARLING
-	_mach_fork_parent();
+	// Failed fork still owns all prepare locks, but created no child to await.
+	if (fork_succeeded)
+		_mach_fork_parent();
 #endif
 
 	// second call client parent handlers registered with pthread_atfork()
 	_pthread_atfork_parent_handlers();
 }
+
+void
+libSystem_atfork_parent(void)
+{
+	libSystem_atfork_parent_cleanup(1);
+}
+
+#ifdef DARLING
+static void
+libSystem_atfork_failed(void)
+{
+	libSystem_atfork_parent_cleanup(0);
+}
+#endif
 
 void
 libSystem_atfork_child(void)
