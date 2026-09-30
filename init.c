@@ -103,6 +103,9 @@ extern void _libtrace_fork_child(void);
 extern void _malloc_fork_prepare(void);
 extern void _malloc_fork_parent(void);
 extern void _malloc_fork_child(void);
+#if defined(DARLING) && (defined(__arm64__) || defined(__aarch64__))
+extern void __darling_arm64_thread_bridge_postfork_complete(void);
+#endif
 
 extern void _mach_fork_child(void);
 #ifdef DARLING
@@ -440,6 +443,9 @@ libSystem_atfork_child(void)
 	_mach_fork_child();
 	_pthread_atfork_child();
 	_malloc_fork_child();
+#if defined(DARLING) && (defined(__arm64__) || defined(__aarch64__))
+	__darling_arm64_thread_bridge_postfork_complete();
+#endif
 	cc_atfork_child();
 	_libc_fork_child(); // _arc4_fork_child calls malloc
 	_dyld_fork_child();
@@ -512,6 +518,9 @@ void libSystem_posix_spawn_child(void) {
 	_mach_fork_child();
 	_pthread_atfork_child();
 	_malloc_fork_child();
+#if defined(DARLING) && (defined(__arm64__) || defined(__aarch64__))
+	__darling_arm64_thread_bridge_postfork_complete();
+#endif
 	cc_atfork_child();
 	_libc_fork_child(); // _arc4_fork_child calls malloc
 	_dyld_fork_child();
